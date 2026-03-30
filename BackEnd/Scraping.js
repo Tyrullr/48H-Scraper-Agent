@@ -1,79 +1,144 @@
+const { Stagehand } = require('@browserbasehq/stagehand');
 const { chromium } = require('playwright');
+const TurndownService = require('turndown');
 const fs = require('fs');
+require('dotenv').config();
 
-async function crawlerCatalogueComplet(urlDeDepart) {
-  // headless: false permet de voir le navigateur s'ouvrir (pratique pour deboguer)
-  const browser = await chromium.launch({ headless: false });
-  const page = await browser.newPage();
+async function lancerExtractionComplete(urlDepart, maxPages = Infinity) {
+  console.log("--- PHASE 1 : COLLECTE DES LIENS ---");
   
-  // Utilisation d'un Set pour stocker les liens et eviter les doublons automatiques
+  const stagehand = new Stagehand({
+    env: "LOCAL",
+    apiKey: process.env.OPENAI_API_KEY,
+    modelName: "gpt-4o-mini", 
+    logger: () => {},
+    localBrowserLaunchOptions: { 
+      headless: true 
+    }
+  });
+  
+  await stagehand.init();
+  const page = stagehand.context.activePage();
+
+  console.log("Navigateur de l'Agent prêt. Navigation en cours...");
+  await page.goto(urlDepart, { waitUntil: 'networkidle' });
+
   let tousLesLiens = new Set();
   let paginationActive = true;
+  let numeroPage = 1;
 
-  console.log("Etape 1 : Demarrage de l'exploration des pages listes...");
-  await page.goto(urlDeDepart, { waitUntil: 'networkidle' });
-
-  // --- PHASE 1 : PARCOURIR LA PAGINATION ET RECOLTER LES LIENS ---
   while (paginationActive) {
-    console.log("Analyse de la page en cours...");
+    console.log(`Analyse de la page ${numeroPage} par l'IA...`);
+    
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
-    // 1. Trouver tous les liens vers les profils exposants
-    // ATTENTION : Le selecteur 'a.profile-link' doit etre adapte selon le site web cible
-    const liensSurLaPage = await page.$$eval('a.profile-link', anchors => anchors.map(a => a.href));
-    liensSurLaPage.forEach(lien => tousLesLiens.add(lien));
+    const liensDeLaPage = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll('a'))
+                    .map(a => a.href)
+                    .filter(href => (href.includes('/exhibitors/') || href.includes('/appearances/')) && href.split('/').length > 4); 
+    });
 
-    // 2. Chercher le bouton "Page suivante"
-    // Le selecteur '.next-page-btn' changera aussi selon le site
-    const boutonSuivant = await page.$('.next-page-btn');
+    const tailleAvantCollecte = tousLesLiens.size;
 
-    if (boutonSuivant) {
-      console.log("Bouton 'Suivant' trouve, clic en cours...");
-      await boutonSuivant.click();
-      
-      // Crucial : attendre que le nouveau contenu JS soit charge apres le clic
-      await page.waitForLoadState('networkidle');
-      // Une petite pause supplementaire pour eviter les blocages anti-bot
-      await page.waitForTimeout(2000); 
-    } else {
-      console.log("Plus de bouton 'Suivant'. Fin de l'exploration.");
+    if (liensDeLaPage.length > 0) {
+      liensDeLaPage.forEach(lien => tousLesLiens.add(lien));
+    }
+    
+    console.log(`${liensDeLaPage.length} liens trouves sur cette page. Total unique en memoire : ${tousLesLiens.size}`);
+
+    if (tousLesLiens.size === tailleAvantCollecte && numeroPage > 1) {
+      console.log("Aucun NOUVEAU lien detecte. Nous avons boucle sur la derniere page ! Fin de la collecte.");
       paginationActive = false;
+      break;
+    }
+
+    if (numeroPage >= maxPages) {
+      console.log(`Limite max de scrolls atteinte (${maxPages}). Fin de la collecte.`);
+      paginationActive = false;
+      break;
+    }
+
+    console.log(`Défilement vers le bas (Scroll n°${numeroPage}) pour charger la suite...`);
+    
+    const hauteurPrecedente = await page.evaluate(() => document.body.scrollHeight);
+    
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    const nouvelleHauteur = await page.evaluate(() => document.body.scrollHeight);
+
+    try {
+    } catch(e) {}
+
+    if (nouvelleHauteur === hauteurPrecedente && tousLesLiens.size === tailleAvantCollecte) {
+      console.log("Le scroll ne révèle plus rien de nouveau (bas de la page atteint). Fin de la collecte.");
+      paginationActive = false;
+    } else {
+      numeroPage++;
     }
   }
 
-  const listeFinaleLiens = Array.from(tousLesLiens);
-  console.log(`Bilan Phase 1 : ${listeFinaleLiens.length} profils uniques trouves.`);
+  await stagehand.close();
+  const listeFinaleUrls = Array.from(tousLesLiens);
 
-  // --- PHASE 2 : VISITER CHAQUE PROFIL EN PROFONDEUR ---
-  console.log("Etape 2 : Extraction des donnees de chaque profil...");
-  let donneesGlobales = [];
+  console.log("\n--- PHASE 2 : ASPIRATION DES PROFILS ---");
+  
+  const browser = await chromium.launch({ headless: true });
+  const turndownService = new TurndownService();
+  let donneesPourIA = [];
 
-  for (const lienProfil of listeFinaleLiens) {
-    console.log(`Ouverture de : ${lienProfil}`);
-    await page.goto(lienProfil, { waitUntil: 'networkidle' });
-
-    // Ici, vous appliquez la logique d'extraction brute vue precedemment
-    const texteBrut = await page.$eval('body', el => {
-      // Nettoyage rapide
-      el.querySelectorAll('nav, footer, script, style').forEach(n => n.remove());
-      return el.innerText.trim();
+  for (let i = 0; i < listeFinaleUrls.length; i++) {
+    const urlProfil = listeFinaleUrls[i];
+    console.log(`Aspiration ${i + 1}/${listeFinaleUrls.length} : ${urlProfil}`);
+    
+    const context = await browser.newContext();
+    const pageProfil = await context.newPage();
+    
+    await pageProfil.route('**/*', (route) => {
+      const type = route.request().resourceType();
+      if (['image', 'media', 'font', 'stylesheet'].includes(type)) {
+        route.abort();
+      } else {
+        route.continue();
+      }
     });
+    
+    try {
+      await pageProfil.goto(urlProfil, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      
+      const htmlPropre = await pageProfil.$eval('body', body => {
+        body.querySelectorAll('nav, footer, header, script, style, svg, iframe').forEach(el => el.remove());
+        return body.innerHTML;
+      });
 
-    // Sauvegarde temporaire en memoire
-    donneesGlobales.push({
-      url: lienProfil,
-      contenu: texteBrut
-    });
+      const texteMarkdown = turndownService.turndown(htmlPropre);
+      
+      donneesPourIA.push({
+        source_url: urlProfil,
+        contenu_markdown: texteMarkdown
+      });
 
-    await page.waitForTimeout(1000); // Pause anti-bannissement
+    } catch (erreur) {
+      console.log(`Echec sur ${urlProfil}`);
+    } finally {
+      await context.close();
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
   await browser.close();
 
-  // --- PHASE 3 : EXPORT ---
-  // On sauvegarde tout dans un gros fichier JSON que l'equipe IA pourra lire
-  fs.writeFileSync('export_brut_exposants.json', JSON.stringify(donneesGlobales, null, 2));
-  console.log("Mission terminee : Fichier export_brut_exposants.json cree !");
+  fs.writeFileSync('donnees_exposants_pretes_pour_IA.json', JSON.stringify(donneesPourIA, null, 2));
+  console.log("\nMission terminee ! Fichier sauvegarde avec succes.");
 }
 
-// Lancement du crawler global
-crawlerCatalogueComplet('https://www.mwcbarcelona.com/exhibitors');
+const args = process.argv.slice(2);
+const limitPages = args.length > 0 ? parseInt(args[0], 10) : Infinity;
+
+if (limitPages !== Infinity) {
+  console.log(`Lancement du script avec une limite de ${limitPages} page(s).`);
+}
+
+lancerExtractionComplete('https://vivatech.com/exhibitors', limitPages);
