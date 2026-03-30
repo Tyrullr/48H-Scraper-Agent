@@ -1,0 +1,24 @@
+{
+  "name": "48h-projet-scraping-agent-ia",
+  "version": "1.0.0",
+  "description": "Scraping",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tyrullr/48H-Scraper-Agent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Tyrullr/48H-Scraper-Agent/issues"
+  },
+  "homepage": "https://github.com/Tyrullr/48H-Scraper-Agent#readme",
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "playwright": "^1.58.2"
+  }
+}
