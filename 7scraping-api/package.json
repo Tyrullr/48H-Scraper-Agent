@@ -1,0 +1,25 @@
+{
+  "name": "exhibitors-api",
+  "version": "1.0.0",
+  "description": "API de scraping et chat pour exposants de salons",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "knex": "^3.1.0",
+    "sqlite3": "^5.1.7",
+    "playwright": "^1.42.1",
+    "openai": "^4.28.0",
+    "uuid": "^9.0.0",
+    "axios": "^1.6.7",
+    "cheerio": "^1.0.0-rc.12"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  }
+}
