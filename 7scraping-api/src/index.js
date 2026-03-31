@@ -17,6 +17,7 @@ app.use('/api/scrape',     require('./routes/scrape'));
 app.use('/api/exhibitors', require('./routes/exhibitors'));
 app.use('/api/sessions',   require('./routes/sessions'));
 app.use('/api/chat',       require('./routes/chat'));
+app.use('/api/export-csv', require('./routes/exportCsv'));
 
 app.get('/', (req, res) => {
   res.json({
@@ -32,6 +33,7 @@ app.get('/', (req, res) => {
       'POST   /api/chat':                      'Chat avec l\'agent IA',
       'GET    /api/chat/history/:session_id':  'Historique de la conversation',
       'DELETE /api/chat/history/:session_id':  'Effacer la conversation',
+      'GET    /api/export-csv?session_id=':     'Exporter les exposants en CSV via IA',
     }
   });
 });

@@ -19,6 +19,8 @@ export default function ChatPage() {
     const [messages, setMessages] = useState([]);
     const [message, setMessage] = useState("");
     const [sending, setSending] = useState(false);
+    const [exporting, setExporting] = useState(false);
+    const [exportInfo, setExportInfo] = useState("");
 
     const fetchSessionAndHistory = async () => {
         if (!sessionId) return;
@@ -89,6 +91,39 @@ export default function ChatPage() {
         }
     };
 
+    const handleExportCsv = async () => {
+        if (!sessionId) return;
+
+        setExportInfo("");
+        setError("");
+        setExporting(true);
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/export-csv?session_id=${encodeURIComponent(sessionId)}`);
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || 'Erreur lors de l\'export CSV');
+            }
+
+            const csv = data.csv;
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `exhibitors-${sessionId}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+
+            setExportInfo('Export CSV téléchargé.');
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setExporting(false);
+        }
+    };
+
     if (!sessionId) {
         return (
             <div className="min-h-screen bg-gray-100 flex items-center justify-center p-8">
@@ -107,20 +142,35 @@ export default function ChatPage() {
 
     return (
         <div className="min-h-screen bg-gray-100 flex flex-col">
-            <div className="flex items-center gap-4 px-6 py-4 border-b bg-white">
-                <button onClick={() => router.push("/")}>
-                    <ArrowLeft className="w-5 h-5 text-gray-600" />
-                </button>
-                <div className="flex items-center gap-3">
-                    <div className="bg-purple-100 p-2 rounded-xl">
-                        <Globe className="w-5 h-5 text-purple-600" />
-                    </div>
-                    <div>
-                        <p className="font-medium text-gray-900">Session : {sessionId}</p>
-                        <p className="text-sm text-gray-400">URL : {sourceUrl || sessionInfo?.url || 'Non fournie'}</p>
+            <div className="flex items-center justify-between gap-4 px-6 py-4 border-b bg-white">
+                <div className="flex items-center gap-4">
+                    <button onClick={() => router.push("/")}> 
+                        <ArrowLeft className="w-5 h-5 text-gray-600" />
+                    </button>
+                    <div className="flex items-center gap-3">
+                        <div className="bg-purple-100 p-2 rounded-xl">
+                            <Globe className="w-5 h-5 text-purple-600" />
+                        </div>
+                        <div>
+                            <p className="font-medium text-gray-900">Session : {sessionId}</p>
+                            <p className="text-sm text-gray-400">URL : {sourceUrl || sessionInfo?.url || 'Non fournie'}</p>
+                        </div>
                     </div>
                 </div>
+                <button
+                    onClick={handleExportCsv}
+                    disabled={exporting || loading || !sessionInfo?.status || sessionInfo?.status !== 'completed'}
+                    className="bg-purple-500 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl font-medium transition"
+                >
+                    {exporting ? 'Export en cours...' : 'Exporter CSV'}
+                </button>
             </div>
+
+            {exportInfo && (
+                <div className="px-6 pt-4">
+                    <p className="text-sm text-green-600">{exportInfo}</p>
+                </div>
+            )}
 
             <div className="flex-1 px-6 py-4 overflow-auto">
                 {loading ? (
